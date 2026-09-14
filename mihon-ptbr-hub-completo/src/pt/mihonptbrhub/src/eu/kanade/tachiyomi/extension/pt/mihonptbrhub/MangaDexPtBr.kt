@@ -10,6 +10,7 @@ import keiyoushi.annotation.Source
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -18,11 +19,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 @Source
 abstract class MangaDexPtBr : KeiSource() {
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        search("", page)
+    override suspend fun getPopularManga(page: Int): MangasPage = search("", page)
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        search("", page)
+    override suspend fun getLatestUpdates(page: Int): MangasPage = search("", page)
 
     override suspend fun getSearchMangaList(
         page: Int,
