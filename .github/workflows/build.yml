@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'Mihon_PTBR_Hub_COMPLETO/**'
+     - 'mihon-ptbr-hub-completo/**'
       - '.github/workflows/build.yml'
 
 permissions:
@@ -28,7 +28,7 @@ jobs:
         run: |
           rm -rf upstream/src/pt/mihonptbrhub
           mkdir -p upstream/src/pt
-          cp -R "Mihon_PTBR_Hub_COMPLETO/src/pt/mihonptbrhub" "upstream/src/pt/"
+          cp -R "mihon-ptbr-hub-completo/src/pt/mihonptbrhub" "upstream/src/pt/"
 
       - name: Compilar extensão
         working-directory: upstream
