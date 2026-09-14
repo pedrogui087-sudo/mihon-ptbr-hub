@@ -7,8 +7,10 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.parseAs
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -47,7 +49,7 @@ abstract class MangaDexPtBr : KeiSource() {
             }
             .build()
 
-        val json = client.get(url).parseAs<JsonObject>()
+        val json = client.get(url).parseAs<JsonElement>().jsonObject
         val data = json["data"]?.jsonArray.orEmpty()
         val total = json["total"]?.jsonPrimitive?.intOrNull ?: data.size
 
@@ -66,7 +68,7 @@ abstract class MangaDexPtBr : KeiSource() {
 
             SManga.create().apply {
                 this.title = title
-                url = "/manga/$id"
+                url = "/manga/$id".toHttpUrl()
                 description = attrs["description"]
                     ?.jsonObject
                     ?.values
@@ -90,9 +92,12 @@ abstract class MangaDexPtBr : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate {
-        val id = manga.url.substringAfterLast('/')
-        val url = "$baseUrl/manga/$id".toHttpUrl()
-        val json = client.get(url).parseAs<JsonObject>()
+        val id = manga.url.pathSegments.lastOrNull()
+            ?: return SMangaUpdate(manga, chapters)
+
+        val json = client.get(
+            "$baseUrl/manga/$id",
+        ).parseAs<JsonElement>().jsonObject
 
         val obj = json["data"]?.jsonObject
             ?: return SMangaUpdate(manga, chapters)
@@ -127,7 +132,7 @@ abstract class MangaDexPtBr : KeiSource() {
                 .addQueryParameter("limit", "100")
                 .addQueryParameter("order[chapter]", "asc")
                 .build(),
-        ).parseAs<JsonObject>()
+        ).parseAs<JsonElement>().jsonObject
 
         val list = chapterJson["data"]
             ?.jsonArray
@@ -146,7 +151,7 @@ abstract class MangaDexPtBr : KeiSource() {
                     ?: return@mapNotNull null
 
                 SChapter.create().apply {
-                    url = "/chapter/$chapterId"
+                    url = "/chapter/$chapterId".toHttpUrl()
                     name = "Capítulo $number"
                     chapter_number = number.toFloatOrNull() ?: 0f
                     date_upload = chapterAttrs["publishAt"]
@@ -167,10 +172,12 @@ abstract class MangaDexPtBr : KeiSource() {
     override suspend fun getPageList(
         chapter: SChapter,
     ): List<Page> {
-        val id = chapter.url.substringAfterLast('/')
+        val id = chapter.url.pathSegments.lastOrNull()
+            ?: return emptyList()
+
         val json = client.get(
-            "$baseUrl/at-home/server/$id".toHttpUrl(),
-        ).parseAs<JsonObject>()
+            "$baseUrl/at-home/server/$id",
+        ).parseAs<JsonElement>().jsonObject
 
         val base = json["baseUrl"]
             ?.jsonPrimitive
@@ -193,18 +200,18 @@ abstract class MangaDexPtBr : KeiSource() {
         return pages.mapIndexed { index, filename ->
             Page(
                 index,
-                "$base/data/$hash/$filename",
+                imageUrl = "$base/data/$hash/$filename",
             )
         }
     }
 
     override fun getMangaUrl(
         manga: SManga,
-    ): String = "$baseUrl${manga.url}"
+    ): String = "https://mangadex.org/title/${manga.url.pathSegments.last()}"
 
     override fun getChapterUrl(
         chapter: SChapter,
-    ): String = "$baseUrl${chapter.url}"
+    ): String = "https://mangadex.org/chapter/${chapter.url.pathSegments.last()}"
 
     private fun firstLocalized(
         obj: JsonObject?,
