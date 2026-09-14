@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-     - 'mihon-ptbr-hub-completo/**'
+      - 'mihon-ptbr-hub-completo/**'
       - '.github/workflows/build.yml'
 
 permissions:
