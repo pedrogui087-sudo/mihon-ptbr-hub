@@ -16,7 +16,6 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.HttpUrl.Companion.toHttpUrl
 
 @Source
 abstract class MangaDexPtBr : KeiSource() {
@@ -35,28 +34,21 @@ abstract class MangaDexPtBr : KeiSource() {
         query: String,
         page: Int,
     ): MangasPage {
-        val url = "$baseUrl/manga".toHttpUrl().newBuilder()
-            .addQueryParameter("limit", "20")
-            .addQueryParameter("offset", ((page - 1) * 20).toString())
-            .addQueryParameter("availableTranslatedLanguage[]", "pt-br")
-            .addQueryParameter("contentRating[]", "safe")
-            .addQueryParameter("contentRating[]", "suggestive")
-            .addQueryParameter("order[latestUploadedChapter]", "desc")
-            .apply {
-                if (query.isNotBlank()) {
-                    addQueryParameter("title", query)
-                }
-            }
-            .build()
+        val url = "$baseUrl/manga"
 
-        val json = client.get(url).parseAs<JsonElement>().jsonObject
+        val json = client.get(url)
+            .parseAs<JsonElement>()
+            .jsonObject
+
         val data = json["data"]?.jsonArray.orEmpty()
         val total = json["total"]?.jsonPrimitive?.intOrNull ?: data.size
 
         val mangas = data.mapNotNull { item ->
             val obj = item.jsonObject
+
             val id = obj["id"]?.jsonPrimitive?.content
                 ?: return@mapNotNull null
+
             val attrs = obj["attributes"]?.jsonObject
                 ?: return@mapNotNull null
 
@@ -68,15 +60,15 @@ abstract class MangaDexPtBr : KeiSource() {
 
             SManga.create().apply {
                 this.title = title
-                url = "/manga/$id".toHttpUrl()
-                description = attrs["description"]
+                this.url = "/manga/$id"
+                this.description = attrs["description"]
                     ?.jsonObject
                     ?.values
                     ?.firstOrNull()
                     ?.jsonPrimitive
                     ?.content
                     .orEmpty()
-                status = SManga.UNKNOWN
+                this.status = SManga.UNKNOWN
             }
         }
 
@@ -92,8 +84,7 @@ abstract class MangaDexPtBr : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate {
-        val id = manga.url.pathSegments.lastOrNull()
-            ?: return SMangaUpdate(manga, chapters)
+        val id = manga.url.substringAfterLast("/")
 
         val json = client.get(
             "$baseUrl/manga/$id",
@@ -126,12 +117,7 @@ abstract class MangaDexPtBr : KeiSource() {
         }
 
         val chapterJson = client.get(
-            "$baseUrl/chapter".toHttpUrl().newBuilder()
-                .addQueryParameter("manga", id)
-                .addQueryParameter("translatedLanguage[]", "pt-br")
-                .addQueryParameter("limit", "100")
-                .addQueryParameter("order[chapter]", "asc")
-                .build(),
+            "$baseUrl/chapter?manga=$id&translatedLanguage[]=pt-br&limit=100&order[chapter]=asc",
         ).parseAs<JsonElement>().jsonObject
 
         val list = chapterJson["data"]
@@ -139,6 +125,7 @@ abstract class MangaDexPtBr : KeiSource() {
             .orEmpty()
             .mapNotNull { raw ->
                 val chapter = raw.jsonObject
+
                 val chapterAttrs = chapter["attributes"]?.jsonObject
                     ?: return@mapNotNull null
 
@@ -151,10 +138,10 @@ abstract class MangaDexPtBr : KeiSource() {
                     ?: return@mapNotNull null
 
                 SChapter.create().apply {
-                    url = "/chapter/$chapterId".toHttpUrl()
-                    name = "Capítulo $number"
-                    chapter_number = number.toFloatOrNull() ?: 0f
-                    date_upload = chapterAttrs["publishAt"]
+                    this.url = "/chapter/$chapterId"
+                    this.name = "Capítulo $number"
+                    this.chapter_number = number.toFloatOrNull() ?: 0f
+                    this.date_upload = chapterAttrs["publishAt"]
                         ?.jsonPrimitive
                         ?.content
                         ?.let {
@@ -172,8 +159,7 @@ abstract class MangaDexPtBr : KeiSource() {
     override suspend fun getPageList(
         chapter: SChapter,
     ): List<Page> {
-        val id = chapter.url.pathSegments.lastOrNull()
-            ?: return emptyList()
+        val id = chapter.url.substringAfterLast("/")
 
         val json = client.get(
             "$baseUrl/at-home/server/$id",
@@ -205,13 +191,15 @@ abstract class MangaDexPtBr : KeiSource() {
         }
     }
 
-    override fun getMangaUrl(
-        manga: SManga,
-    ): String = "https://mangadex.org/title/${manga.url.pathSegments.last()}"
+    override fun getMangaUrl(manga: SManga): String {
+        val id = manga.url.substringAfterLast("/")
+        return "https://mangadex.org/title/$id"
+    }
 
-    override fun getChapterUrl(
-        chapter: SChapter,
-    ): String = "https://mangadex.org/chapter/${chapter.url.pathSegments.last()}"
+    override fun getChapterUrl(chapter: SChapter): String {
+        val id = chapter.url.substringAfterLast("/")
+        return "https://mangadex.org/chapter/$id"
+    }
 
     private fun firstLocalized(
         obj: JsonObject?,
@@ -223,6 +211,7 @@ abstract class MangaDexPtBr : KeiSource() {
 
         for (key in keys) {
             val value = obj[key]?.jsonPrimitive?.content
+
             if (!value.isNullOrBlank()) {
                 return value
             }
