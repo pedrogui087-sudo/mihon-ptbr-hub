@@ -1,0 +1,41 @@
+name: Build Mihon PT-BR Hub
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - '.github/workflows/build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: Checkout current Keiyoushi extension framework
+        uses: actions/checkout@v4
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+
+      - name: Overlay this extension module
+        run: |
+          rm -rf upstream/src/pt/mihonptbrhub
+          mkdir -p upstream/src/pt
+          cp -R src/pt/mihonptbrhub upstream/src/pt/mihonptbrhub
+
+      - name: Build extension
+        working-directory: upstream
+        run: ./gradlew :src:pt:mihonptbrhub:assembleRelease --stacktrace
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihon-ptbr-hub-apk
+          path: upstream/src/pt/mihonptbrhub/build/outputs/apk/release/*.apk
+          if-no-files-found: error
