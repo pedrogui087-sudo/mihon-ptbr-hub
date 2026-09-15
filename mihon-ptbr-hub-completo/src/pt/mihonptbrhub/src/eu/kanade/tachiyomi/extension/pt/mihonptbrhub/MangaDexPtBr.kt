@@ -58,15 +58,15 @@ abstract class MangaDexPtBr : KeiSource() {
     }
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
-        return if (url.host == baseUrl.toHttpUrl().host) {
-            if (isMangaDex) {
-                val id = url.pathSegments.getOrNull(1) ?: return null
-                fetchManga(id)
-            } else {
-                fetchHtmlManga(url.toString())
-            }
+        if (url.host != baseUrl.toHttpUrl().host) {
+            return null
+        }
+
+        return if (isMangaDex) {
+            val id = url.pathSegments.getOrNull(1) ?: return null
+            fetchManga(id)
         } else {
-            null
+            fetchHtmlManga(url)
         }
     }
 
@@ -118,7 +118,7 @@ abstract class MangaDexPtBr : KeiSource() {
             val cover = findCoverFileName(manga)
 
             SManga.create().apply {
-                url = id
+                url = id.toHttpUrl()
                 this.title = title
                 thumbnail_url = cover?.let {
                     "https://uploads.mangadex.org/covers/$id/$it"
@@ -147,8 +147,7 @@ abstract class MangaDexPtBr : KeiSource() {
             ?: return null
 
         return SManga.create().apply {
-            url = id
-
+            url = id.toHttpUrl()
             title = firstLocalized(
                 attributes["title"]?.jsonObject,
                 "pt-br",
@@ -199,7 +198,7 @@ abstract class MangaDexPtBr : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate {
-        val id = manga.url
+        val id = manga.url.toString()
 
         val mangaJson = client.get(
             "$baseUrl/manga/$id?includes[]=cover_art",
@@ -270,7 +269,7 @@ abstract class MangaDexPtBr : KeiSource() {
                     ?.content
 
                 SChapter.create().apply {
-                    url = chapterId
+                    url = chapterId.toHttpUrl()
 
                     name = when {
                         !title.isNullOrBlank() &&
@@ -319,8 +318,10 @@ abstract class MangaDexPtBr : KeiSource() {
     private suspend fun mangaDexPages(
         chapter: SChapter,
     ): List<Page> {
+        val chapterId = chapter.url.toString()
+
         val json = client.get(
-            "$baseUrl/at-home/server/${chapter.url}",
+            "$baseUrl/at-home/server/$chapterId",
         ).parseAs<JsonElement>().jsonObject
 
         val base = json["baseUrl"]
@@ -380,19 +381,13 @@ abstract class MangaDexPtBr : KeiSource() {
                 return@mapNotNull null
             }
 
-            val mangaUrl = link.absUrl("href")
-
-            if (mangaUrl.isBlank()) {
-                return@mapNotNull null
-            }
-
-            val image = card.selectFirst("img")
+            val mangaUrl = link.absUrl("href").toHttpUrl()
 
             SManga.create().apply {
                 url = mangaUrl
                 this.title = title
 
-                thumbnail_url = image?.let {
+                thumbnail_url = card.selectFirst("img")?.let {
                     it.absUrl("data-src").ifEmpty {
                         it.absUrl("src")
                     }
@@ -409,7 +404,7 @@ abstract class MangaDexPtBr : KeiSource() {
     }
 
     private suspend fun fetchHtmlManga(
-        url: String,
+        url: HttpUrl,
     ): SManga? {
         val document = client.get(url).asJsoup()
 
@@ -419,7 +414,7 @@ abstract class MangaDexPtBr : KeiSource() {
             null
         } ?: return null
 
-        val manga = SManga.create().apply {
+        return SManga.create().apply {
             this.url = url
             this.title = title
 
@@ -440,8 +435,6 @@ abstract class MangaDexPtBr : KeiSource() {
 
             status = SManga.UNKNOWN
         }
-
-        return manga
     }
 
     private suspend fun fetchHtmlUpdate(
@@ -450,9 +443,7 @@ abstract class MangaDexPtBr : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate {
-        val url = manga.url
-
-        val document = client.get(url).asJsoup()
+        val document = client.get(manga.url).asJsoup()
 
         if (fetchDetails) {
             document.selectFirst(
@@ -493,6 +484,12 @@ abstract class MangaDexPtBr : KeiSource() {
                 return@mapNotNull null
             }
 
+            val chapterUrl = link.absUrl("href")
+
+            if (chapterUrl.isBlank()) {
+                return@mapNotNull null
+            }
+
             val chapterNumber = Regex(
                 "(?:chapter|cap[ií]tulo|cap)\\s*" +
                     "([0-9]+(?:\\.[0-9]+)?)",
@@ -503,14 +500,8 @@ abstract class MangaDexPtBr : KeiSource() {
                 ?.toFloatOrNull()
                 ?: 0f
 
-            val chapterUrl = link.absUrl("href")
-
-            if (chapterUrl.isBlank()) {
-                return@mapNotNull null
-            }
-
             SChapter.create().apply {
-                url = chapterUrl
+                url = chapterUrl.toHttpUrl()
                 this.name = name
                 chapter_number = chapterNumber
             }
@@ -551,7 +542,7 @@ abstract class MangaDexPtBr : KeiSource() {
         return if (isMangaDex) {
             "https://mangadex.org/title/${manga.url}"
         } else {
-            manga.url
+            manga.url.toString()
         }
     }
 
@@ -561,7 +552,7 @@ abstract class MangaDexPtBr : KeiSource() {
         return if (isMangaDex) {
             "https://mangadex.org/chapter/${chapter.url}"
         } else {
-            chapter.url
+            chapter.url.toString()
         }
     }
 
