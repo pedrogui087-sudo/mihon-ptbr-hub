@@ -63,25 +63,50 @@ abstract class MangaDexPtBr : KeiSource() {
         }
 
         return if (isMangaDex) {
-            val id = url.pathSegments.getOrNull(1) ?: return null
+            val id = url.pathSegments.lastOrNull()
+                ?: return null
+
             fetchManga(id)
         } else {
             fetchHtmlManga(url)
         }
     }
 
+    // -------------------------------------------------------------------------
+    // MANGADEX
+    // -------------------------------------------------------------------------
+
     private suspend fun mangaDexSearch(
         query: String,
         page: Int,
     ): MangasPage {
-        val url = "$baseUrl/manga".toHttpUrl().newBuilder()
+        val requestUrl = "$baseUrl/manga".toHttpUrl()
+            .newBuilder()
             .addQueryParameter("limit", pageSize.toString())
-            .addQueryParameter("offset", ((page - 1) * pageSize).toString())
-            .addQueryParameter("availableTranslatedLanguage[]", "pt-br")
-            .addQueryParameter("contentRating[]", "safe")
-            .addQueryParameter("contentRating[]", "suggestive")
-            .addQueryParameter("order[latestUploadedChapter]", "desc")
-            .addQueryParameter("includes[]", "cover_art")
+            .addQueryParameter(
+                "offset",
+                ((page - 1) * pageSize).toString(),
+            )
+            .addQueryParameter(
+                "availableTranslatedLanguage[]",
+                "pt-br",
+            )
+            .addQueryParameter(
+                "contentRating[]",
+                "safe",
+            )
+            .addQueryParameter(
+                "contentRating[]",
+                "suggestive",
+            )
+            .addQueryParameter(
+                "order[latestUploadedChapter]",
+                "desc",
+            )
+            .addQueryParameter(
+                "includes[]",
+                "cover_art",
+            )
             .apply {
                 if (query.isNotBlank()) {
                     addQueryParameter("title", query)
@@ -89,8 +114,14 @@ abstract class MangaDexPtBr : KeiSource() {
             }
             .build()
 
-        val json = client.get(url).parseAs<JsonElement>().jsonObject
-        val data = json["data"]?.jsonArray.orEmpty()
+        val json = client.get(requestUrl)
+            .parseAs<JsonElement>()
+            .jsonObject
+
+        val data = json["data"]
+            ?.jsonArray
+            .orEmpty()
+
         val total = json["total"]
             ?.jsonPrimitive
             ?.content
@@ -118,11 +149,14 @@ abstract class MangaDexPtBr : KeiSource() {
             val cover = findCoverFileName(manga)
 
             SManga.create().apply {
-                url = id.toHttpUrl()
+                this.url = "$baseUrl/manga/$id"
+
                 this.title = title
+
                 thumbnail_url = cover?.let {
                     "https://uploads.mangadex.org/covers/$id/$it"
                 }
+
                 status = SManga.UNKNOWN
             }
         }
@@ -133,10 +167,15 @@ abstract class MangaDexPtBr : KeiSource() {
         )
     }
 
-    private suspend fun fetchManga(id: String): SManga? {
-        val json = client.get(
-            "$baseUrl/manga/$id?includes[]=cover_art",
-        ).parseAs<JsonElement>().jsonObject
+    private suspend fun fetchManga(
+        id: String,
+    ): SManga? {
+        val requestUrl =
+            "$baseUrl/manga/$id?includes[]=cover_art"
+
+        val json = client.get(requestUrl)
+            .parseAs<JsonElement>()
+            .jsonObject
 
         val manga = json["data"]
             ?.jsonObject
@@ -147,7 +186,8 @@ abstract class MangaDexPtBr : KeiSource() {
             ?: return null
 
         return SManga.create().apply {
-            url = id.toHttpUrl()
+            this.url = "$baseUrl/manga/$id"
+
             title = firstLocalized(
                 attributes["title"]?.jsonObject,
                 "pt-br",
@@ -198,11 +238,16 @@ abstract class MangaDexPtBr : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate {
-        val id = manga.url.toString()
+        val mangaUrl = manga.url.toHttpUrl()
+
+        val mangaId = mangaUrl.pathSegments.lastOrNull()
+            ?: return SMangaUpdate(manga, chapters)
 
         val mangaJson = client.get(
-            "$baseUrl/manga/$id?includes[]=cover_art",
-        ).parseAs<JsonElement>().jsonObject
+            "$baseUrl/manga/$mangaId?includes[]=cover_art",
+        )
+            .parseAs<JsonElement>()
+            .jsonObject
 
         val mangaObject = mangaJson["data"]
             ?.jsonObject
@@ -229,7 +274,7 @@ abstract class MangaDexPtBr : KeiSource() {
 
             findCoverFileName(mangaObject)?.let {
                 manga.thumbnail_url =
-                    "https://uploads.mangadex.org/covers/$id/$it"
+                    "https://uploads.mangadex.org/covers/$mangaId/$it"
             }
         }
 
@@ -237,13 +282,24 @@ abstract class MangaDexPtBr : KeiSource() {
             return SMangaUpdate(manga, chapters)
         }
 
-        val chapterJson = client.get(
-            "$baseUrl/chapter" +
-                "?manga=$id" +
-                "&translatedLanguage[]=pt-br" +
-                "&limit=100" +
-                "&order[chapter]=desc",
-        ).parseAs<JsonElement>().jsonObject
+        val chapterRequestUrl =
+            "$baseUrl/chapter".toHttpUrl()
+                .newBuilder()
+                .addQueryParameter("manga", mangaId)
+                .addQueryParameter(
+                    "translatedLanguage[]",
+                    "pt-br",
+                )
+                .addQueryParameter("limit", "100")
+                .addQueryParameter(
+                    "order[chapter]",
+                    "desc",
+                )
+                .build()
+
+        val chapterJson = client.get(chapterRequestUrl)
+            .parseAs<JsonElement>()
+            .jsonObject
 
         val chapterList = chapterJson["data"]
             ?.jsonArray
@@ -264,25 +320,25 @@ abstract class MangaDexPtBr : KeiSource() {
                     ?.jsonPrimitive
                     ?.content
 
-                val title = attributesObject["title"]
+                val chapterTitle = attributesObject["title"]
                     ?.jsonPrimitive
                     ?.content
 
                 SChapter.create().apply {
-                    url = chapterId.toHttpUrl()
+                    this.url = "$baseUrl/chapter/$chapterId"
 
                     name = when {
-                        !title.isNullOrBlank() &&
+                        !chapterTitle.isNullOrBlank() &&
                             !number.isNullOrBlank() -> {
-                            "Capítulo $number - $title"
+                            "Capítulo $number - $chapterTitle"
                         }
 
                         !number.isNullOrBlank() -> {
                             "Capítulo $number"
                         }
 
-                        !title.isNullOrBlank() -> {
-                            title
+                        !chapterTitle.isNullOrBlank() -> {
+                            chapterTitle
                         }
 
                         else -> {
@@ -297,12 +353,15 @@ abstract class MangaDexPtBr : KeiSource() {
                         attributesObject["publishAt"]
                             ?.jsonPrimitive
                             ?.content
-                            ?.let { parseDate(it) }
+                            ?.let(::parseDate)
                             ?: 0L
                 }
             }
 
-        return SMangaUpdate(manga, chapterList)
+        return SMangaUpdate(
+            manga,
+            chapterList,
+        )
     }
 
     override suspend fun getPageList(
@@ -318,13 +377,18 @@ abstract class MangaDexPtBr : KeiSource() {
     private suspend fun mangaDexPages(
         chapter: SChapter,
     ): List<Page> {
-        val chapterId = chapter.url.toString()
+        val chapterUrl = chapter.url.toHttpUrl()
+
+        val chapterId = chapterUrl.pathSegments.lastOrNull()
+            ?: return emptyList()
 
         val json = client.get(
             "$baseUrl/at-home/server/$chapterId",
-        ).parseAs<JsonElement>().jsonObject
+        )
+            .parseAs<JsonElement>()
+            .jsonObject
 
-        val base = json["baseUrl"]
+        val atHomeBaseUrl = json["baseUrl"]
             ?.jsonPrimitive
             ?.content
             ?: return emptyList()
@@ -344,22 +408,28 @@ abstract class MangaDexPtBr : KeiSource() {
             .mapIndexed { index, item ->
                 Page(
                     index,
-                    imageUrl = "$base/data/$hash/${item.jsonPrimitive.content}",
+                    imageUrl =
+                        "$atHomeBaseUrl/data/$hash/${item.jsonPrimitive.content}",
                 )
             }
     }
+
+    // -------------------------------------------------------------------------
+    // SITES HTML
+    // -------------------------------------------------------------------------
 
     private suspend fun htmlSearch(
         query: String,
         page: Int,
     ): MangasPage {
-        val url = if (query.isBlank()) {
+        val requestUrl = if (query.isBlank()) {
             "$baseUrl/manga/page/$page/"
         } else {
             "$baseUrl/?s=${query.encodeUrl()}&post_type=wp-manga"
         }
 
-        val document = client.get(url).asJsoup()
+        val document = client.get(requestUrl)
+            .asJsoup()
 
         val cards = document.select(
             ".c-tabs-item__content, " +
@@ -375,16 +445,21 @@ abstract class MangaDexPtBr : KeiSource() {
                 ".tab-summary .post-title a, " +
                     ".post-title a, " +
                     ".post-title",
-            )?.text()?.ifEmpty {
-                null
-            } ?: link.text().ifEmpty {
+            )
+                ?.text()
+                ?.ifEmpty { null }
+                ?: link.text().ifEmpty {
+                    return@mapNotNull null
+                }
+
+            val mangaUrlString = link.absUrl("href")
+
+            if (mangaUrlString.isBlank()) {
                 return@mapNotNull null
             }
 
-            val mangaUrl = link.absUrl("href").toHttpUrl()
-
             SManga.create().apply {
-                url = mangaUrl
+                this.url = mangaUrlString
                 this.title = title
 
                 thumbnail_url = card.selectFirst("img")?.let {
@@ -406,23 +481,27 @@ abstract class MangaDexPtBr : KeiSource() {
     private suspend fun fetchHtmlManga(
         url: HttpUrl,
     ): SManga? {
-        val document = client.get(url).asJsoup()
+        val document = client.get(url)
+            .asJsoup()
 
         val title = document.selectFirst(
             ".post-title h1, h1.entry-title, h1",
-        )?.text()?.ifEmpty {
-            null
-        } ?: return null
+        )
+            ?.text()
+            ?.ifEmpty { null }
+            ?: return null
 
         return SManga.create().apply {
-            this.url = url
+            this.url = url.toString()
             this.title = title
 
             description = document.selectFirst(
                 ".summary__content, " +
                     ".description-summary, " +
                     ".summary_content",
-            )?.text().orEmpty()
+            )
+                ?.text()
+                .orEmpty()
 
             thumbnail_url = document.selectFirst(
                 ".summary_image img, " +
@@ -443,22 +522,29 @@ abstract class MangaDexPtBr : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate {
-        val document = client.get(manga.url).asJsoup()
+        val document = client.get(
+            manga.url.toHttpUrl(),
+        )
+            .asJsoup()
 
         if (fetchDetails) {
             document.selectFirst(
                 ".post-title h1, h1.entry-title, h1",
-            )?.text()?.let {
-                manga.title = it
-            }
+            )
+                ?.text()
+                ?.let {
+                    manga.title = it
+                }
 
             document.selectFirst(
                 ".summary__content, " +
                     ".description-summary, " +
                     ".summary_content",
-            )?.text()?.let {
-                manga.description = it
-            }
+            )
+                ?.text()
+                ?.let {
+                    manga.description = it
+                }
 
             document.selectFirst(
                 ".summary_image img, " +
@@ -472,89 +558,131 @@ abstract class MangaDexPtBr : KeiSource() {
         }
 
         if (!fetchChapters) {
-            return SMangaUpdate(manga, chapters)
+            return SMangaUpdate(
+                manga,
+                chapters,
+            )
         }
 
         val chapterList = document.select(
             ".wp-manga-chapter a, " +
                 ".version-chap a, " +
                 ".chapter-list a",
-        ).mapNotNull { link ->
-            val name = link.text().ifEmpty {
-                return@mapNotNull null
+        )
+            .mapNotNull { link ->
+                val chapterName = link.text().ifEmpty {
+                    return@mapNotNull null
+                }
+
+                val chapterUrl = link.absUrl("href")
+
+                if (chapterUrl.isBlank()) {
+                    return@mapNotNull null
+                }
+
+                val chapterNumber = Regex(
+                    "(?:chapter|cap[ií]tulo|cap)\\s*" +
+                        "([0-9]+(?:\\.[0-9]+)?)",
+                    RegexOption.IGNORE_CASE,
+                )
+                    .find(chapterName)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.toFloatOrNull()
+                    ?: 0f
+
+                SChapter.create().apply {
+                    this.url = chapterUrl
+                    this.name = chapterName
+                    chapter_number = chapterNumber
+                }
             }
+            .distinctBy { it.url }
 
-            val chapterUrl = link.absUrl("href")
-
-            if (chapterUrl.isBlank()) {
-                return@mapNotNull null
-            }
-
-            val chapterNumber = Regex(
-                "(?:chapter|cap[ií]tulo|cap)\\s*" +
-                    "([0-9]+(?:\\.[0-9]+)?)",
-                RegexOption.IGNORE_CASE,
-            ).find(name)
-                ?.groupValues
-                ?.getOrNull(1)
-                ?.toFloatOrNull()
-                ?: 0f
-
-            SChapter.create().apply {
-                url = chapterUrl.toHttpUrl()
-                this.name = name
-                chapter_number = chapterNumber
-            }
-        }.distinctBy { it.url }
-
-        return SMangaUpdate(manga, chapterList)
+        return SMangaUpdate(
+            manga,
+            chapterList,
+        )
     }
 
     private suspend fun htmlPages(
         chapter: SChapter,
     ): List<Page> {
-        val document = client.get(chapter.url).asJsoup()
+        val document = client.get(
+            chapter.url.toHttpUrl(),
+        )
+            .asJsoup()
 
         return document.select(
             ".reading-content img, " +
                 ".chapter-content img, " +
                 ".page-break img, " +
                 "img[data-src]",
-        ).mapIndexedNotNull { index, image ->
-            val imageUrl = image.absUrl("data-src").ifEmpty {
-                image.absUrl("src")
-            }
+        )
+            .mapIndexedNotNull { index, image ->
+                val imageUrl =
+                    image.absUrl("data-src").ifEmpty {
+                        image.absUrl("src")
+                    }
 
-            if (imageUrl.isBlank()) {
-                null
-            } else {
-                Page(
-                    index,
-                    imageUrl = imageUrl,
-                )
+                if (imageUrl.isBlank()) {
+                    null
+                } else {
+                    Page(
+                        index,
+                        imageUrl = imageUrl,
+                    )
+                }
             }
-        }
     }
+
+    // -------------------------------------------------------------------------
+    // URLS
+    // -------------------------------------------------------------------------
 
     override fun getMangaUrl(
         manga: SManga,
     ): String {
-        return if (isMangaDex) {
-            "https://mangadex.org/title/${manga.url}"
+        if (!isMangaDex) {
+            return manga.url
+        }
+
+        val mangaId = runCatching {
+            manga.url.toHttpUrl()
+                .pathSegments
+                .lastOrNull()
+        }.getOrNull()
+
+        return if (!mangaId.isNullOrBlank()) {
+            "https://mangadex.org/title/$mangaId"
         } else {
-            manga.url.toString()
+            manga.url
         }
     }
 
     override fun getChapterUrl(
         chapter: SChapter,
     ): String {
-        return if (isMangaDex) {
-            "https://mangadex.org/chapter/${chapter.url}"
+        if (!isMangaDex) {
+            return chapter.url
+        }
+
+        val chapterId = runCatching {
+            chapter.url.toHttpUrl()
+                .pathSegments
+                .lastOrNull()
+        }.getOrNull()
+
+        return if (!chapterId.isNullOrBlank()) {
+            "https://mangadex.org/chapter/$chapterId"
         } else {
-            chapter.url.toString()
+            chapter.url
         }
     }
+
+    // -------------------------------------------------------------------------
+    // JSON HELPERS
+    // -------------------------------------------------------------------------
 
     private fun findCoverFileName(
         manga: JsonObject,
