@@ -30,6 +30,10 @@ jobs:
           mkdir -p upstream/src/pt
           cp -R "mihon-ptbr-hub-completo/src/pt/mihonptbrhub" "upstream/src/pt/"
 
+      - name: Formatar código
+        working-directory: upstream
+        run: ./gradlew :src:pt:mihonptbrhub:spotlessApply
+
       - name: Compilar extensão
         working-directory: upstream
         run: ./gradlew :src:pt:mihonptbrhub:assembleRelease --stacktrace
@@ -37,6 +41,6 @@ jobs:
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
-          name: mihon-ptbr-hub-apk
+          name: mihon-pt-br-hub-apk
           path: upstream/src/pt/mihonptbrhub/build/outputs/apk/release/*.apk
           if-no-files-found: error
